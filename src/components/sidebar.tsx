@@ -57,10 +57,10 @@ export function Sidebar({
       >
         <div className="flex items-center gap-2 px-4 py-4">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-bold text-white">
-            B
+            W
           </div>
           <span className="text-sm font-semibold tracking-tight text-white">
-            BATCHER
+            WADE
           </span>
           <button
             type="button"
