@@ -46,7 +46,7 @@ export function MessageList({
         {isEmpty && !loading && (
           <div className="flex min-h-[50vh] flex-col items-center justify-center text-center">
             <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-2xl font-bold text-white shadow-lg shadow-indigo-500/20">
-              B
+              W
             </div>
             <h1 className="text-2xl font-semibold tracking-tight text-white">
               How can I help?
@@ -81,7 +81,7 @@ export function MessageList({
               <Avatar role="assistant" />
               <div className="min-w-0 flex-1 pt-0.5">
                 {streamingText ? (
-                  <div className="batcher-caret">
+                  <div className="wade-caret">
                     <Markdown content={streamingText} />
                   </div>
                 ) : (
@@ -135,7 +135,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   }
   return (
     <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-[11px] font-bold text-white">
-      B
+      W
     </div>
   );
 }

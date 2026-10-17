@@ -51,7 +51,7 @@ export function Composer({
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message BATCHER…  (Enter to send, Shift+Enter for a new line)"
+            placeholder="Message WADE…  (Enter to send, Shift+Enter for a new line)"
             className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-2 text-[0.9375rem] leading-6 text-white placeholder-zinc-500 outline-none"
           />
 
@@ -79,7 +79,7 @@ export function Composer({
         </div>
 
         <p className="mt-2 text-center text-[11px] text-zinc-600">
-          BATCHER can make mistakes. Verify anything important.
+          WADE can make mistakes. Verify anything important.
         </p>
       </div>
     </div>

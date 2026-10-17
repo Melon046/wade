@@ -1,5 +1,5 @@
 -- ===========================================================================
--- BATCHER — initial schema
+-- WADE — initial schema
 -- ---------------------------------------------------------------------------
 -- Apply with either:
 --   * Supabase Dashboard  ->  SQL Editor  ->  paste & run, or
