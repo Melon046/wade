@@ -38,100 +38,100 @@ body {
 }
 
 /* --- Markdown rendering -------------------------------------------------- */
-.wade-markdown {
+.batcher-markdown {
   font-size: 0.9375rem;
   line-height: 1.7;
   word-break: break-word;
 }
 
-.wade-markdown > *:first-child {
+.batcher-markdown > *:first-child {
   margin-top: 0;
 }
 
-.wade-markdown > *:last-child {
+.batcher-markdown > *:last-child {
   margin-bottom: 0;
 }
 
-.wade-markdown p {
+.batcher-markdown p {
   margin: 0.75rem 0;
 }
 
-.wade-markdown h1,
-.wade-markdown h2,
-.wade-markdown h3,
-.wade-markdown h4 {
+.batcher-markdown h1,
+.batcher-markdown h2,
+.batcher-markdown h3,
+.batcher-markdown h4 {
   margin: 1.25rem 0 0.5rem;
   font-weight: 600;
   line-height: 1.3;
 }
 
-.wade-markdown h1 {
+.batcher-markdown h1 {
   font-size: 1.375rem;
 }
-.wade-markdown h2 {
+.batcher-markdown h2 {
   font-size: 1.1875rem;
 }
-.wade-markdown h3 {
+.batcher-markdown h3 {
   font-size: 1.0625rem;
 }
 
-.wade-markdown ul,
-.wade-markdown ol {
+.batcher-markdown ul,
+.batcher-markdown ol {
   margin: 0.75rem 0;
   padding-left: 1.5rem;
 }
 
-.wade-markdown ul {
+.batcher-markdown ul {
   list-style: disc;
 }
-.wade-markdown ol {
+.batcher-markdown ol {
   list-style: decimal;
 }
 
-.wade-markdown li {
+.batcher-markdown li {
   margin: 0.25rem 0;
 }
 
-.wade-markdown a {
+.batcher-markdown a {
   color: #a5b4fc;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.wade-markdown blockquote {
+.batcher-markdown blockquote {
   margin: 0.75rem 0;
   border-left: 3px solid rgba(255, 255, 255, 0.18);
   padding-left: 1rem;
   color: #a1a1aa;
 }
 
-.wade-markdown table {
+.batcher-markdown table {
   margin: 0.75rem 0;
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
 
-.wade-markdown th,
-.wade-markdown td {
+.batcher-markdown th,
+.batcher-markdown td {
   border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
 
-.wade-markdown th {
+.batcher-markdown th {
   background-color: rgba(255, 255, 255, 0.04);
   font-weight: 600;
 }
 
-.wade-markdown hr {
+.batcher-markdown hr {
   margin: 1.25rem 0;
   border: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 /* Inline code */
-.wade-markdown :not(pre) > code {
+.batcher-markdown :not(pre) > code {
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 0.375rem;
@@ -141,7 +141,7 @@ body {
 }
 
 /* Code blocks */
-.wade-markdown pre {
+.batcher-markdown pre {
   margin: 0.875rem 0;
   overflow-x: auto;
   border-radius: 0.75rem;
@@ -152,7 +152,7 @@ body {
   line-height: 1.6;
 }
 
-.wade-markdown pre code {
+.batcher-markdown pre code {
   font-family: var(--font-mono);
   background: none;
   border: 0;
@@ -160,7 +160,7 @@ body {
 }
 
 /* --- Streaming caret ----------------------------------------------------- */
-.wade-caret::after {
+.batcher-caret::after {
   content: "";
   display: inline-block;
   width: 0.5rem;
@@ -169,10 +169,10 @@ body {
   vertical-align: text-bottom;
   background-color: #a5b4fc;
   border-radius: 1px;
-  animation: wade-blink 1s steps(2, start) infinite;
+  animation: batcher-blink 1s steps(2, start) infinite;
 }
 
-@keyframes wade-blink {
+@keyframes batcher-blink {
   to {
     visibility: hidden;
   }

@@ -6,7 +6,7 @@ import {
 } from "ai";
 import { createClient } from "@/lib/supabase/server";
 import { resolveModelChain, type ModelChoice } from "@/lib/models";
-import { WADE_SYSTEM_PROMPT } from "@/lib/prompt";
+import { BATCHER_SYSTEM_PROMPT } from "@/lib/prompt";
 
 /**
  * Streaming chat endpoint.
@@ -22,8 +22,8 @@ import { WADE_SYSTEM_PROMPT } from "@/lib/prompt";
  *
  * Response headers
  *   X-Conversation-Id : the conversation the turn was written to (new or existing)
- *   X-Wade-Provider   : "google" | "groq" — which provider actually answered
- *   X-Wade-Model      : the model id that answered
+ *   X-Batcher-Provider   : "google" | "groq" — which provider actually answered
+ *   X-Batcher-Model      : the model id that answered
  *
  * The API keys never leave this process. The browser only ever talks to this
  * route, which is the whole point of not calling the provider from the client.
@@ -35,10 +35,10 @@ export const maxDuration = 60;
 /** How many prior messages to replay as context. */
 const MAX_CONTEXT_MESSAGES = 20;
 
-const MAX_OUTPUT_TOKENS = Number(process.env.WADE_MAX_OUTPUT_TOKENS ?? 2048);
+const MAX_OUTPUT_TOKENS = Number(process.env.BATCHER_MAX_OUTPUT_TOKENS ?? 2048);
 
 /** 0 disables the per-user daily cap. */
-const DAILY_TOKEN_LIMIT = Number(process.env.WADE_DAILY_TOKEN_LIMIT ?? 0);
+const DAILY_TOKEN_LIMIT = Number(process.env.BATCHER_DAILY_TOKEN_LIMIT ?? 0);
 
 const MAX_INPUT_CHARS = 8000;
 
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
     try {
       const result = streamText({
         model: choice.model,
-        system: WADE_SYSTEM_PROMPT,
+        system: BATCHER_SYSTEM_PROMPT,
         messages: contextMessages,
         maxOutputTokens: MAX_OUTPUT_TOKENS,
         temperature: 0.7,
@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
           } catch (streamError) {
             // The provider died mid-stream. The client already has partial
             // text; surface the failure rather than pretending it finished.
-            console.error("[wade] stream failed mid-flight", streamError);
+            console.error("[batcher] stream failed mid-flight", streamError);
             controller.error(streamError);
             return;
           }
@@ -256,7 +256,7 @@ export async function POST(request: NextRequest) {
               .eq("id", conversationId);
           } catch (persistError) {
             // Never fail the user's reply because bookkeeping failed.
-            console.error("[wade] failed to persist turn", persistError);
+            console.error("[batcher] failed to persist turn", persistError);
           }
 
           controller.close();
@@ -267,7 +267,7 @@ export async function POST(request: NextRequest) {
     } catch (providerError) {
       lastError = providerError;
       console.warn(
-        `[wade] provider "${choice.provider}" (${choice.modelId}) failed, trying next`,
+        `[batcher] provider "${choice.provider}" (${choice.modelId}) failed, trying next`,
         providerError,
       );
     }
@@ -288,8 +288,8 @@ export async function POST(request: NextRequest) {
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Conversation-Id": conversationId ?? "",
-      "X-Wade-Provider": answered.provider,
-      "X-Wade-Model": answered.modelId,
+      "X-Batcher-Provider": answered.provider,
+      "X-Batcher-Model": answered.modelId,
     },
   });
 }

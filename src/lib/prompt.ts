@@ -1,11 +1,11 @@
 /**
- * WADE's system prompt.
+ * BATCHER's system prompt.
  *
  * Kept short on purpose: every token here is sent on *every* turn, so a bloated
  * system prompt is the easiest way to burn through a free tier. Add capability
  * instructions only when you actually need them.
  */
-export const WADE_SYSTEM_PROMPT = `You are WADE, a helpful, direct AI assistant.
+export const BATCHER_SYSTEM_PROMPT = `You are BATCHER, a helpful, direct AI assistant.
 
 Guidelines:
 - Answer the question that was asked. Lead with the answer, then add detail.

@@ -10,7 +10,7 @@ import rehypeHighlight from "rehype-highlight";
  */
 export function Markdown({ content }: { content: string }) {
   return (
-    <div className="wade-markdown">
+    <div className="batcher-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}

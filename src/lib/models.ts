@@ -5,7 +5,7 @@ import type { LanguageModel } from "ai";
 /**
  * Model configuration.
  *
- * WADE runs on a two-provider chain so a single free tier running dry does not
+ * BATCHER runs on a two-provider chain so a single free tier running dry does not
  * take the app down:
  *
  *   1. Google AI Studio (Gemini Flash) — best quality on a free tier.
@@ -18,14 +18,14 @@ import type { LanguageModel } from "ai";
  *
  * Model IDs are retired by providers over time. If you start seeing 404
  * "model not found" errors, check the provider's model list and override the
- * IDs with the WADE_PRIMARY_MODEL / WADE_FALLBACK_MODEL env vars.
+ * IDs with the BATCHER_PRIMARY_MODEL / BATCHER_FALLBACK_MODEL env vars.
  */
 
 export const PRIMARY_MODEL_ID =
-  process.env.WADE_PRIMARY_MODEL?.trim() || "gemini-2.5-flash";
+  process.env.BATCHER_PRIMARY_MODEL?.trim() || "gemini-2.5-flash";
 
 export const FALLBACK_MODEL_ID =
-  process.env.WADE_FALLBACK_MODEL?.trim() || "llama-3.3-70b-versatile";
+  process.env.BATCHER_FALLBACK_MODEL?.trim() || "llama-3.3-70b-versatile";
 
 export type ProviderName = "google" | "groq";
 

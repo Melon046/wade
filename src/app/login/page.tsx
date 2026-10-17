@@ -39,10 +39,10 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-2xl font-bold text-white shadow-lg shadow-indigo-500/20">
-            W
+            B
           </div>
           <h1 className="text-3xl font-semibold tracking-tight text-white">
-            WADE
+            BATCHER
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
             Your own AI assistant. Sign in with a magic link — no password to

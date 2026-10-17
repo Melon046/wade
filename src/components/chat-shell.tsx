@@ -171,8 +171,8 @@ export function ChatShell({ userEmail }: { userEmail: string }) {
         }
 
         newConversationId = response.headers.get("X-Conversation-Id");
-        provider = response.headers.get("X-Wade-Provider");
-        model = response.headers.get("X-Wade-Model");
+        provider = response.headers.get("X-Batcher-Provider");
+        model = response.headers.get("X-Batcher-Model");
 
         const reader = response.body?.getReader();
         if (!reader) throw new Error("The response had no readable body.");
@@ -244,7 +244,7 @@ export function ChatShell({ userEmail }: { userEmail: string }) {
 
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-sm font-semibold tracking-tight text-white">
-              WADE
+              BATCHER
             </span>
             <span className="hidden truncate text-xs text-zinc-500 sm:inline">
               {activeId
