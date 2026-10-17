@@ -1,10 +1,8 @@
-# BATCHER
+# WADE
 
-**B**atch **A**ssistant for **T**hinking, **C**hatting, **H**elping, **E**xploring & **R**esearching — a self-hosted AI assistant with streaming chat, saved conversations, and a free-tier-first architecture.
+**W**eb **A**nd **D**esktop **E**ngine — a self-hosted AI assistant with streaming chat, saved conversations, and a free-tier-first architecture.
 
-Built for a South African student and a friend: a **study & research helper**, a **personal productivity assistant**, and a **content manager** — all in one place.
-
-Runs at **R0/month** on free tiers for a single user, and is designed to stay cheap as it grows. The target subscription price is **R15.17/month** — enough to cover a small paid tier once you outgrow the free limits, without ever needing a dollar-denominated card.
+Built to run at **R0/month** for a single user, and to stay cheap as it grows.
 
 ---
 
@@ -80,7 +78,7 @@ Fill in:
 | `GOOGLE_GENERATIVE_AI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) |
 
-You need **at least one** LLM key. With only Groq configured, BATCHER runs on Llama alone.
+You need **at least one** LLM key. With only Groq configured, WADE runs on Llama alone.
 
 ### 4. Run
 
@@ -170,10 +168,10 @@ Note the pattern: the **daily** number is generous, the **per-minute** number is
 
 | Env var | Default | Effect |
 | --- | --- | --- |
-| `BATCHER_MAX_OUTPUT_TOKENS` | `2048` | Caps a single reply so one runaway generation can't eat your quota |
-| `BATCHER_DAILY_TOKEN_LIMIT` | `0` (off) | Per-user daily token cap. **Turn this on before sharing a public link.** |
-| `BATCHER_PRIMARY_MODEL` | `gemini-2.5-flash` | Override when a model id is retired |
-| `BATCHER_FALLBACK_MODEL` | `llama-3.3-70b-versatile` | Same |
+| `WADE_MAX_OUTPUT_TOKENS` | `2048` | Caps a single reply so one runaway generation can't eat your quota |
+| `WADE_DAILY_TOKEN_LIMIT` | `0` (off) | Per-user daily token cap. **Turn this on before sharing a public link.** |
+| `WADE_PRIMARY_MODEL` | `gemini-2.5-flash` | Override when a model id is retired |
+| `WADE_FALLBACK_MODEL` | `llama-3.3-70b-versatile` | Same |
 
 Context is capped at the last **20 messages** — unbounded history is the fastest way to make cost grow quadratically.
 
@@ -207,7 +205,7 @@ The API is a plain HTTP endpoint, so a React Native client reuses it unchanged. 
 | `All providers failed` | Both keys invalid, or model ids retired | Check the key, then override the model id |
 | Reply arrives all at once | A proxy is buffering | Confirm `Cache-Control: no-cache, no-transform` survives your host |
 | Logged out randomly | Middleware not refreshing the session | Ensure `src/middleware.ts` is present and its matcher is intact |
-| `model not found` (404) | Provider retired the model id | Set `BATCHER_PRIMARY_MODEL` / `BATCHER_FALLBACK_MODEL` |
+| `model not found` (404) | Provider retired the model id | Set `WADE_PRIMARY_MODEL` / `WADE_FALLBACK_MODEL` |
 | Supabase project paused | Free projects pause after ~1 week idle | Add a weekly cron ping, or open the dashboard |
 
 ---
@@ -220,17 +218,10 @@ The API is a plain HTTP endpoint, so a React Native client reuses it unchanged. 
 1. **Regenerate / edit a message** — highest-value missing chat feature.
 2. **Cost dashboard** — read `usage_events` and chart spend per day.
 3. **BYOK** — let users paste their own key, encrypted at rest. Removes your cost ceiling entirely.
-4. **Mobile app** — Expo, reusing `/api/chat` as-is.
+4. **File upload** — Supabase Storage + a PDF text extractor.
+5. **Mobile app** — Expo, reusing `/api/chat` as-is.
 
-### Growth path (keep the base price at R15.17/month)
-
-Each stage below is additive and free-tier-first — none of them raises the base price.
-
-1. **Memory + documents** — long-term memory (a `memories` table + embeddings) and file upload (Supabase Storage + a PDF text extractor) so Batcher remembers context and reads your notes, slides, and PDFs. *Free:* Supabase Storage 1 GB + pgvector.
-2. **Image generation** — add an image tool to the chat (e.g. a free image API or a cheap per-image provider) so Batcher can illustrate study notes and content. *Free/cheap:* metered per image, so it never touches the base price.
-3. **Video** — generate short clips from a prompt or a reference image. *Cheap:* per-clip metering, opt-in only.
-
-**Deliberately not built yet:** voice, model picker, teams. Each adds surface area without making the core loop better.
+**Deliberately not built yet:** voice, image generation, model picker, teams. Each adds surface area without making the core loop better.
 
 ---
 
