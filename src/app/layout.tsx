@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BATCHER — your own AI assistant",
+  title: "WADE — your own AI assistant",
   description:
-    "BATCHER is a self-hosted AI assistant: streaming chat, saved conversations, and a free-tier-first architecture.",
+    "WADE is a self-hosted AI assistant: streaming chat, saved conversations, and a free-tier-first architecture.",
 };
 
 export default function RootLayout({
