@@ -1,12 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
-import {
-  streamText,
-  type LanguageModelUsage,
-  type ModelMessage,
-} from "ai";
+import type { ModelMessage } from "ai";
 import { createClient } from "@/lib/supabase/server";
-import { resolveModelChain, type ModelChoice } from "@/lib/models";
+import { resolveModelChain } from "@/lib/models";
 import { WADE_SYSTEM_PROMPT } from "@/lib/prompt";
+import { env, assertSupabaseEnv, EnvError } from "@/lib/env";
+import { acquireTurn, releaseTurn } from "@/lib/rate-limit";
+import { loadContextMessages } from "@/lib/context";
+import {
+  AllProvidersFailedError,
+  openProviderStream,
+  streamProviderReply,
+  type PersistTurnInput,
+} from "@/lib/provider-chain";
 
 /**
  * Streaming chat endpoint.
@@ -15,10 +20,13 @@ import { WADE_SYSTEM_PROMPT } from "@/lib/prompt";
  *   POST /api/chat
  *   body: { conversationId?: string, message: string }
  *   200 : text/plain stream of the assistant's reply, chunked as it is produced
+ *   400 : malformed body / empty message
  *   401 : not signed in
- *   429 : daily token limit reached
- *   503 : no provider configured
+ *   413 : message too long
+ *   429 : rate limit, concurrency limit, or daily token quota reached
+ *   500 : server misconfiguration (e.g. missing Supabase env)
  *   502 : every provider in the chain failed
+ *   503 : no provider configured
  *
  * Response headers
  *   X-Conversation-Id : the conversation the turn was written to (new or existing)
@@ -27,22 +35,38 @@ import { WADE_SYSTEM_PROMPT } from "@/lib/prompt";
  *
  * The API keys never leave this process. The browser only ever talks to this
  * route, which is the whole point of not calling the provider from the client.
+ *
+ * Error bodies are deliberately generic. Provider errors are logged server-side
+ * with full detail; the client is told only that the request failed, so a
+ * provider's raw message (which can echo request content or key fragments)
+ * never reaches the browser.
  */
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-/** How many prior messages to replay as context. */
-const MAX_CONTEXT_MESSAGES = 20;
-
-const MAX_OUTPUT_TOKENS = Number(process.env.WADE_MAX_OUTPUT_TOKENS ?? 2048);
-
-/** 0 disables the per-user daily cap. */
-const DAILY_TOKEN_LIMIT = Number(process.env.WADE_DAILY_TOKEN_LIMIT ?? 0);
-
 const MAX_INPUT_CHARS = 8000;
 
+/** Safety net: never hold a concurrency slot longer than this. */
+const SLOT_SAFETY_MS = 120_000;
+
 export async function POST(request: NextRequest) {
+  // --- 0. Configuration ----------------------------------------------------
+  // Validated lazily (not at module load) so `next build` works without a
+  // populated .env.local, but a bad value still fails fast and clearly.
+  try {
+    assertSupabaseEnv();
+  } catch (error) {
+    if (error instanceof EnvError) {
+      console.error("[wade] configuration error:", error.message);
+      return NextResponse.json(
+        { error: "The server is not configured correctly." },
+        { status: 500 },
+      );
+    }
+    throw error;
+  }
+
   // --- 1. Authenticate -----------------------------------------------------
   const supabase = await createClient();
   const {
@@ -84,212 +108,222 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // --- 4. Per-user daily quota --------------------------------------------
-  if (DAILY_TOKEN_LIMIT > 0) {
-    const { data: usage } = await supabase
-      .from("usage_today")
-      .select("input_tokens, output_tokens")
-      .eq("user_id", user.id)
-      .maybeSingle();
+  // --- 4. Rate limit (burst + concurrency) --------------------------------
+  // This runs *before* the quota check and before any provider call. The daily
+  // token quota is a spend ceiling checked before the turn and written after
+  // it, so on its own it lets N parallel requests all pass; this is the guard
+  // that actually stops a burst.
+  const decision = acquireTurn(user.id);
+  if (!decision.ok) {
+    const retryAfter = decision.retryAfterSeconds ?? 5;
+    return NextResponse.json(
+      {
+        error:
+          decision.reason === "concurrency"
+            ? "You already have the maximum number of replies in flight. Wait for one to finish."
+            : "You are sending messages too quickly. Please slow down.",
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(retryAfter) },
+      },
+    );
+  }
 
-    const used = (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
-    if (used >= DAILY_TOKEN_LIMIT) {
-      return NextResponse.json(
-        { error: "You have reached today's usage limit. Try again tomorrow." },
-        { status: 429 },
-      );
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    releaseTurn(user.id);
+  };
+
+  // Guarantee the slot is returned even if the stream is never consumed.
+  const safety = setTimeout(release, SLOT_SAFETY_MS);
+  const maybeUnref = safety as unknown as { unref?: () => void };
+  if (typeof maybeUnref.unref === "function") maybeUnref.unref();
+
+  try {
+    // --- 5. Per-user daily quota ------------------------------------------
+    if (env.dailyTokenLimit > 0) {
+      const { data: usage } = await supabase
+        .from("usage_today")
+        .select("input_tokens, output_tokens")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const used = (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+      if (used >= env.dailyTokenLimit) {
+        return NextResponse.json(
+          { error: "You have reached today's usage limit. Try again tomorrow." },
+          { status: 429 },
+        );
+      }
     }
-  }
 
-  // --- 5. Resolve or create the conversation ------------------------------
-  let conversationId = body.conversationId ?? null;
+    // --- 6. Resolve or create the conversation ----------------------------
+    let conversationId = body.conversationId ?? null;
 
-  if (conversationId) {
-    const { data: existing } = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("id", conversationId)
-      .maybeSingle();
+    if (conversationId) {
+      const { data: existing } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("id", conversationId)
+        .maybeSingle();
 
-    // Unknown or someone else's id (RLS hides it) -> start a fresh thread.
-    if (!existing) conversationId = null;
-  }
+      // Unknown or someone else's id (RLS hides it) -> start a fresh thread.
+      if (!existing) conversationId = null;
+    }
 
-  if (!conversationId) {
-    const title = text.length > 60 ? `${text.slice(0, 60)}…` : text;
-    const { data: created, error } = await supabase
-      .from("conversations")
-      .insert({ user_id: user.id, title, model: chain[0].modelId })
-      .select("id")
-      .single();
+    if (!conversationId) {
+      const title = text.length > 60 ? `${text.slice(0, 60)}…` : text;
+      const { data: created, error } = await supabase
+        .from("conversations")
+        .insert({ user_id: user.id, title, model: chain[0].modelId })
+        .select("id")
+        .single();
 
-    if (error || !created) {
+      if (error || !created) {
+        console.error("[wade] could not create conversation", error);
+        return NextResponse.json(
+          { error: "Could not create the conversation." },
+          { status: 500 },
+        );
+      }
+      conversationId = created.id;
+    }
+
+    // Past this point the thread id is guaranteed to be set. Binding it to a
+    // non-nullable const keeps the type honest for everything downstream.
+    if (!conversationId) {
       return NextResponse.json(
         { error: "Could not create the conversation." },
         { status: 500 },
       );
     }
-    conversationId = created.id;
-  }
+    const threadId: string = conversationId;
 
-  // --- 6. Persist the user's message --------------------------------------
-  const { error: userMessageError } = await supabase.from("messages").insert({
-    conversation_id: conversationId,
-    user_id: user.id,
-    role: "user",
-    content: text,
-  });
+    // --- 7. Persist the user's message ------------------------------------
+    const { error: userMessageError } = await supabase.from("messages").insert({
+      conversation_id: threadId,
+      user_id: user.id,
+      role: "user",
+      content: text,
+    });
 
-  if (userMessageError) {
-    return NextResponse.json(
-      { error: "Could not save your message." },
-      { status: 500 },
-    );
-  }
-
-  // --- 7. Build the context window ----------------------------------------
-  const { data: history } = await supabase
-    .from("messages")
-    .select("role, content, created_at")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(200);
-
-  const contextMessages: ModelMessage[] = (history ?? [])
-    .slice(-MAX_CONTEXT_MESSAGES)
-    .map((row) => ({
-      role: row.role as "user" | "assistant" | "system",
-      content: row.content,
-    }));
-
-  // --- 8. Start the stream, falling back on failure -----------------------
-  const startedAt = Date.now();
-  let answered: ModelChoice | null = null;
-  let stream: ReadableStream<Uint8Array> | null = null;
-  let lastError: unknown = null;
-
-  for (const choice of chain) {
-    try {
-      const result = streamText({
-        model: choice.model,
-        system: WADE_SYSTEM_PROMPT,
-        messages: contextMessages,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        temperature: 0.7,
-        abortSignal: request.signal,
-      });
-
-      // Pull the first chunk *before* committing to this provider. A rate
-      // limit or a bad model id surfaces here, which is what lets us fall
-      // through to the next provider instead of streaming a broken response.
-      const iterator = result.textStream[Symbol.asyncIterator]();
-      const first = await iterator.next();
-
-      answered = choice;
-
-      stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          const encoder = new TextEncoder();
-          let accumulated = "";
-
-          try {
-            if (!first.done && first.value) {
-              accumulated += first.value;
-              controller.enqueue(encoder.encode(first.value));
-            }
-
-            while (true) {
-              const next = await iterator.next();
-              if (next.done) break;
-              accumulated += next.value;
-              controller.enqueue(encoder.encode(next.value));
-            }
-          } catch (streamError) {
-            // The provider died mid-stream. The client already has partial
-            // text; surface the failure rather than pretending it finished.
-            console.error("[wade] stream failed mid-flight", streamError);
-            controller.error(streamError);
-            return;
-          }
-
-          // --- Persist the assistant turn + usage -------------------------
-          try {
-            let usage: LanguageModelUsage | undefined;
-            try {
-              usage = await result.usage;
-            } catch {
-              usage = undefined;
-            }
-            const inputTokens = usage?.inputTokens ?? 0;
-            const outputTokens = usage?.outputTokens ?? 0;
-
-            const { data: saved } = await supabase
-              .from("messages")
-              .insert({
-                conversation_id: conversationId,
-                user_id: user.id,
-                role: "assistant",
-                content: accumulated,
-                model: choice.modelId,
-                provider: choice.provider,
-                input_tokens: inputTokens,
-                output_tokens: outputTokens,
-              })
-              .select("id")
-              .single();
-
-            await supabase.from("usage_events").insert({
-              user_id: user.id,
-              conversation_id: conversationId,
-              message_id: saved?.id ?? null,
-              provider: choice.provider,
-              model: choice.modelId,
-              input_tokens: inputTokens,
-              output_tokens: outputTokens,
-              latency_ms: Date.now() - startedAt,
-              fallback_used: choice !== chain[0],
-            });
-
-            await supabase
-              .from("conversations")
-              .update({ updated_at: new Date().toISOString() })
-              .eq("id", conversationId);
-          } catch (persistError) {
-            // Never fail the user's reply because bookkeeping failed.
-            console.error("[wade] failed to persist turn", persistError);
-          }
-
-          controller.close();
-        },
-      });
-
-      break;
-    } catch (providerError) {
-      lastError = providerError;
-      console.warn(
-        `[wade] provider "${choice.provider}" (${choice.modelId}) failed, trying next`,
-        providerError,
+    if (userMessageError) {
+      console.error("[wade] could not save user message", userMessageError);
+      return NextResponse.json(
+        { error: "Could not save your message." },
+        { status: 500 },
       );
     }
-  }
 
-  if (!stream || !answered) {
-    const detail =
-      lastError instanceof Error ? lastError.message : "Unknown provider error";
-    return NextResponse.json(
-      { error: `All providers failed. Last error: ${detail}` },
-      { status: 502 },
+    // --- 8. Build the context window --------------------------------------
+    // Newest N messages, fetched newest-first and reversed into chronological
+    // order. See src/lib/context.ts for why the old ascending+limit(200) page
+    // silently dropped every recent turn past message 200.
+    const contextMessages: ModelMessage[] = await loadContextMessages(
+      supabase,
+      threadId,
     );
-  }
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Conversation-Id": conversationId ?? "",
-      "X-Wade-Provider": answered.provider,
-      "X-Wade-Model": answered.modelId,
-    },
-  });
+    // --- 9. Open a provider stream, falling back on failure ---------------
+    const startedAt = Date.now();
+    const opened = await openProviderStream({
+      chain,
+      system: WADE_SYSTEM_PROMPT,
+      messages: contextMessages,
+      maxOutputTokens: env.maxOutputTokens,
+      signal: request.signal,
+      firstChunkTimeoutMs: env.firstChunkTimeoutMs,
+    });
+
+    // --- 10. Persist the assistant turn + usage ---------------------------
+    const persist = async (input: PersistTurnInput) => {
+      try {
+        if (input.content.trim()) {
+          const { data: saved } = await supabase
+            .from("messages")
+            .insert({
+              conversation_id: threadId,
+              user_id: user.id,
+              role: "assistant",
+              content: input.content,
+              model: input.modelId,
+              provider: input.provider,
+              input_tokens: input.inputTokens,
+              output_tokens: input.outputTokens,
+            })
+            .select("id")
+            .single();
+
+          await supabase.from("usage_events").insert({
+            user_id: user.id,
+            conversation_id: threadId,
+            message_id: saved?.id ?? null,
+            provider: input.provider,
+            model: input.modelId,
+            input_tokens: input.inputTokens,
+            output_tokens: input.outputTokens,
+            latency_ms: input.latencyMs,
+            fallback_used: input.fallbackUsed,
+          });
+        }
+
+        await supabase
+          .from("conversations")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", threadId);
+      } finally {
+        // The turn is over (finished, failed, or stopped) — free the slot.
+        release();
+      }
+    };
+
+    return streamProviderReply({
+      opened,
+      chain,
+      conversationId: threadId,
+      persist,
+      startedAt,
+      signal: request.signal,
+    });
+  } catch (error) {
+    release();
+
+    if (error instanceof AllProvidersFailedError) {
+      // Full detail stays in the server log; the client gets a generic body.
+      console.error(
+        "[wade] all providers failed:",
+        error.attempts.map((attempt) => ({
+          provider: attempt.provider,
+          modelId: attempt.modelId,
+          error:
+            attempt.error instanceof Error
+              ? attempt.error.message
+              : String(attempt.error),
+        })),
+      );
+      return NextResponse.json(
+        { error: "The assistant is temporarily unavailable. Please try again." },
+        { status: 502 },
+      );
+    }
+
+    if (error instanceof EnvError) {
+      console.error("[wade] configuration error:", error.message);
+      return NextResponse.json(
+        { error: "The server is not configured correctly." },
+        { status: 500 },
+      );
+    }
+
+    console.error("[wade] unexpected error handling turn", error);
+    return NextResponse.json(
+      { error: "Something went wrong. Please try again." },
+      { status: 500 },
+    );
+  } finally {
+    clearTimeout(safety);
+  }
 }

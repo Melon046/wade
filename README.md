@@ -30,13 +30,14 @@ Browser
   ▼
 Next.js Route Handler  (src/app/api/chat/route.ts)
   │  1. authenticate via Supabase cookies
-  │  2. enforce per-user daily token quota
-  │  3. resolve or create the conversation
-  │  4. persist the user message
-  │  5. build the context window (last 20 messages)
-  │  6. streamText() → Gemini Flash
-  │        └─ on failure → Groq Llama
-  │  7. persist assistant message + usage_event
+  │  2. rate limit (sliding window + concurrency cap)
+  │  3. enforce per-user daily token quota
+  │  4. resolve or create the conversation
+  │  5. persist the user message
+  │  6. build the context window (newest 20 messages)
+  │  7. streamText() → Gemini Flash
+  │        └─ on failure or empty stream → Groq Llama
+  │  8. persist assistant message + usage_event (also on failure / Stop)
   ▼
 text/plain stream  ──►  client renders tokens as they arrive
 ```
@@ -45,7 +46,9 @@ text/plain stream  ──►  client renders tokens as they arrive
 
 ### Why the fallback is a real fallback
 
-The route pulls the **first chunk** from a provider *before* committing to it. A rate limit (429) or a retired model id (404) therefore surfaces as a thrown error, and the loop moves to the next provider — instead of streaming a broken response to the user.
+The route pulls the **first chunk** from a provider *before* committing to it, under a deadline. A rate limit (429), a retired model id (404), a provider that never responds, or a provider that returns an **empty stream** all count as "this provider cannot answer" — the chain moves to the next provider instead of streaming a broken or empty response to the user. If every provider fails, the route returns a **502** with a generic body; the per-provider reason is logged server-side and never sent to the browser.
+
+A reply that is cut short — by a provider dying mid-stream or by the user pressing **Stop** — is still written to the database, so a reload never shows a question with no answer.
 
 ---
 
@@ -169,11 +172,18 @@ Note the pattern: the **daily** number is generous, the **per-minute** number is
 | Env var | Default | Effect |
 | --- | --- | --- |
 | `WADE_MAX_OUTPUT_TOKENS` | `2048` | Caps a single reply so one runaway generation can't eat your quota |
-| `WADE_DAILY_TOKEN_LIMIT` | `0` (off) | Per-user daily token cap. **Turn this on before sharing a public link.** |
+| `WADE_DAILY_TOKEN_LIMIT` | `200000` | Per-user daily token cap. `0` disables it — don't ship a public link with it off |
+| `WADE_RATE_LIMIT_PER_MINUTE` | `20` | Sliding-window request cap per user, per minute |
+| `WADE_RATE_LIMIT_MAX_CONCURRENT` | `2` | How many turns one user may have streaming at once |
+| `WADE_FIRST_CHUNK_TIMEOUT_MS` | `20000` | How long to wait for a provider's first token before falling through |
 | `WADE_PRIMARY_MODEL` | `gemini-2.5-flash` | Override when a model id is retired |
 | `WADE_FALLBACK_MODEL` | `llama-3.3-70b-versatile` | Same |
 
-Context is capped at the last **20 messages** — unbounded history is the fastest way to make cost grow quadratically.
+Every numeric value above is **validated at boot**: a typo like `WADE_MAX_OUTPUT_TOKENS=abc` fails immediately with a clear message rather than silently becoming `NaN` and surfacing as a misleading "all providers failed".
+
+Context is capped at the newest **20 messages** — unbounded history is the fastest way to make cost grow quadratically. The window is fetched newest-first (`order desc` + `limit 20`) and reversed, so it stays correct no matter how long the thread gets.
+
+Rate limiting is **in-process**. On a single Node server that is exactly right; on a multi-instance deployment each instance enforces its own share, so the effective limit is `limit × instances`. Back it with Redis or a Postgres counter if you need a hard global limit.
 
 ---
 
@@ -202,7 +212,8 @@ The API is a plain HTTP endpoint, so a React Native client reuses it unchanged. 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `No LLM provider is configured` | No API key in `.env.local` | Add one and restart the dev server |
-| `All providers failed` | Both keys invalid, or model ids retired | Check the key, then override the model id |
+| `The assistant is temporarily unavailable` (502) | Both keys invalid, model ids retired, or a provider returned nothing | Check the server log for the per-provider reason, then fix the key or override the model id |
+| `The server is not configured correctly` (500) | A required env var is missing or malformed | Read the boot error in the server log — it names the variable |
 | Reply arrives all at once | A proxy is buffering | Confirm `Cache-Control: no-cache, no-transform` survives your host |
 | Logged out randomly | Middleware not refreshing the session | Ensure `src/middleware.ts` is present and its matcher is intact |
 | `model not found` (404) | Provider retired the model id | Set `WADE_PRIMARY_MODEL` / `WADE_FALLBACK_MODEL` |

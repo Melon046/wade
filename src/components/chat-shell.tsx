@@ -194,10 +194,15 @@ export function ChatShell({ userEmail }: { userEmail: string }) {
         await loadConversations();
       } catch (err) {
         const isAbort = err instanceof Error && err.name === "AbortError";
-        if (isAbort) {
-          // Keep whatever the model managed to produce before the stop.
-          commit(accumulated ? `${accumulated}\n\n_(stopped)_` : "");
-        } else {
+
+        // Keep whatever the model managed to produce, whether the user pressed
+        // Stop or the provider died mid-stream. Losing a half-written reply
+        // because the connection dropped is the worst possible outcome.
+        if (accumulated.trim()) {
+          commit(isAbort ? `${accumulated}\n\n_(stopped)_` : accumulated);
+        }
+
+        if (!isAbort) {
           setError(err instanceof Error ? err.message : "Something went wrong.");
         }
       } finally {
