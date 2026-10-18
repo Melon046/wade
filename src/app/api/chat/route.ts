@@ -78,7 +78,12 @@ export async function POST(request: NextRequest) {
   }
 
   // --- 2. Validate input ---------------------------------------------------
-  let body: { conversationId?: string; message?: string };
+  let body: {
+    conversationId?: string;
+    message?: string;
+    regenerate?: boolean;
+    editMessageId?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -203,19 +208,43 @@ export async function POST(request: NextRequest) {
     const threadId: string = conversationId;
 
     // --- 7. Persist the user's message ------------------------------------
-    const { error: userMessageError } = await supabase.from("messages").insert({
-      conversation_id: threadId,
-      user_id: user.id,
-      role: "user",
-      content: text,
-    });
+    // Regenerate replays the existing prompt, so it must NOT insert a second
+    // copy of the user turn. Edit truncates the thread at the edited message
+    // and re-inserts the edited text, so the transcript stays linear.
+    if (body.editMessageId) {
+      const { data: target } = await supabase
+        .from("messages")
+        .select("id, created_at")
+        .eq("id", body.editMessageId)
+        .eq("conversation_id", threadId)
+        .maybeSingle();
 
-    if (userMessageError) {
-      console.error("[wade] could not save user message", userMessageError);
-      return NextResponse.json(
-        { error: "Could not save your message." },
-        { status: 500 },
-      );
+      if (target) {
+        await supabase
+          .from("messages")
+          .delete()
+          .eq("conversation_id", threadId)
+          .gte("created_at", target.created_at);
+      }
+    }
+
+    if (!body.regenerate) {
+      const { error: userMessageError } = await supabase
+        .from("messages")
+        .insert({
+          conversation_id: threadId,
+          user_id: user.id,
+          role: "user",
+          content: text,
+        });
+
+      if (userMessageError) {
+        console.error("[wade] could not save user message", userMessageError);
+        return NextResponse.json(
+          { error: "Could not save your message." },
+          { status: 500 },
+        );
+      }
     }
 
     // --- 8. Build the context window --------------------------------------

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Conversation } from "@/lib/types";
+import { useDialog } from "./dialog";
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -15,6 +16,18 @@ interface SidebarProps {
   onClose: () => void;
 }
 
+/**
+ * The conversation list.
+ *
+ * Primary navigation used to live here as a 190px nav column, duplicating the
+ * inline "dash-head" bar on the other routes. Navigation now lives in exactly
+ * one place — <AppHeader> — and this component is only what its name says: the
+ * list of conversations, plus the account footer.
+ *
+ * Rename and delete used `window.prompt` / `window.confirm`. They now go
+ * through the shared in-app dialog, which is styleable, non-blocking and
+ * announced correctly by screen readers.
+ */
 export function Sidebar({
   conversations,
   activeId,
@@ -27,15 +40,26 @@ export function Sidebar({
   onSignOut,
   onClose,
 }: SidebarProps) {
-  function handleRename(conversation: Conversation) {
-    const next = window.prompt("Rename conversation", conversation.title);
+  const dialog = useDialog();
+
+  async function handleRename(conversation: Conversation) {
+    const next = await dialog.prompt({
+      title: "Rename conversation",
+      label: "Title",
+      defaultValue: conversation.title,
+      confirmLabel: "Save",
+      maxLength: 120,
+    });
     if (next !== null) onRename(conversation.id, next);
   }
 
-  function handleDelete(conversation: Conversation) {
-    const ok = window.confirm(
-      `Delete "${conversation.title}"? This cannot be undone.`,
-    );
+  async function handleDelete(conversation: Conversation) {
+    const ok = await dialog.confirm({
+      title: "Delete conversation?",
+      description: `“${conversation.title}” and all of its messages will be permanently deleted. This cannot be undone.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
     if (ok) onDelete(conversation.id);
   }
 
@@ -51,43 +75,50 @@ export function Sidebar({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-white/10 bg-zinc-950 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+        aria-label="Conversations"
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-white/10 bg-[var(--color-canvas)] transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center gap-2 px-4 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-bold text-white">
-            W
-          </div>
-          <span className="text-sm font-semibold tracking-tight text-white">
-            WADE
-          </span>
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-3">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-ink-5)]">
+            Conversations
+          </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close conversations"
-            className="ml-auto rounded-lg p-1.5 text-zinc-400 transition hover:bg-white/5 md:hidden"
+            className="ml-auto rounded-lg p-1.5 text-[var(--color-ink-4)] transition hover:bg-white/5 md:hidden"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="px-3">
+        <div className="px-3 pt-3">
           <button
             type="button"
             onClick={onNew}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm font-medium text-white transition hover:bg-white/[0.08]"
+            className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm font-medium text-[var(--color-ink-1)] transition hover:bg-white/[0.08]"
           >
             + New chat
           </button>
         </div>
 
-        <nav className="mt-4 flex-1 overflow-y-auto px-2 pb-4">
+        <nav className="mt-3 flex-1 overflow-y-auto px-2 pb-4">
           {conversations.length === 0 ? (
-            <p className="px-3 py-6 text-center text-xs text-zinc-500">
-              No conversations yet.
+            <p className="px-3 py-6 text-center text-xs text-[var(--color-ink-5)]">
+              No conversations yet. Start one above.
             </p>
           ) : (
             <ul className="space-y-0.5">
@@ -98,10 +129,11 @@ export function Sidebar({
                     <button
                       type="button"
                       onClick={() => onSelect(conversation.id)}
+                      aria-current={isActive ? "true" : undefined}
                       className={`w-full truncate rounded-lg px-3 py-2 pr-16 text-left text-sm transition ${
                         isActive
-                          ? "bg-white/10 text-white"
-                          : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                          ? "bg-white/10 text-[var(--color-ink-1)]"
+                          : "text-[var(--color-ink-4)] hover:bg-white/5 hover:text-[var(--color-ink-2)]"
                       }`}
                       title={conversation.title}
                     >
@@ -112,20 +144,42 @@ export function Sidebar({
                       <button
                         type="button"
                         onClick={() => handleRename(conversation)}
-                        aria-label="Rename conversation"
-                        className="rounded-md p-1.5 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+                        aria-label={`Rename “${conversation.title}”`}
+                        title="Rename"
+                        className="rounded-md p-1.5 text-[var(--color-ink-4)] transition hover:bg-white/10 hover:text-white"
                       >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
                           <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
                         </svg>
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(conversation)}
-                        aria-label="Delete conversation"
-                        className="rounded-md p-1.5 text-zinc-400 transition hover:bg-red-500/15 hover:text-red-300"
+                        aria-label={`Delete “${conversation.title}”`}
+                        title="Delete"
+                        className="rounded-md p-1.5 text-[var(--color-ink-4)] transition hover:bg-red-500/15 hover:text-red-300"
                       >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
                           <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
                         </svg>
                       </button>
@@ -138,13 +192,16 @@ export function Sidebar({
         </nav>
 
         <div className="border-t border-white/10 p-3">
-          <p className="truncate px-1 text-xs text-zinc-500" title={userEmail}>
+          <p
+            className="truncate px-1 text-xs text-[var(--color-ink-5)]"
+            title={userEmail}
+          >
             {userEmail}
           </p>
           <button
             type="button"
             onClick={onSignOut}
-            className="mt-2 w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
+            className="mt-2 w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--color-ink-4)] transition hover:bg-white/5 hover:text-white"
           >
             Sign out
           </button>
